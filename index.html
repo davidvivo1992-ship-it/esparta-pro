@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Metabolisme Espartà · Consola</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#0D0D0F;color:#F2EFE9;font-family:'Barlow',system-ui,sans-serif;
+       -webkit-font-smoothing:antialiased}
+  input,select,textarea,button{font-family:'Barlow',sans-serif}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:#B8860B}
+  select{appearance:none;-webkit-appearance:none;
+         background-image:linear-gradient(45deg,transparent 50%,#8C8880 50%),
+                          linear-gradient(135deg,#8C8880 50%,transparent 50%);
+         background-position:calc(100% - 16px) 18px,calc(100% - 11px) 18px;
+         background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+  option{background:#1A1A1D}
+  button:disabled{opacity:.55;cursor:default}
+  a{color:#C0392B}
+  a:hover{color:#B8860B}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-track{background:#0D0D0F}
+  ::-webkit-scrollbar-thumb{background:#2f2c28}
+  ::selection{background:#9B1B1B;color:#F2EFE9}
+</style>
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icona-192.png">
+<link rel="apple-touch-icon" href="./icona-192.png">
+<meta name="theme-color" content="#0D0D0F">
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+// Neteja d'urgència: si en aquest domini hi va quedar instal·lada l'app de
+// l'Espartà, el seu service worker segueix servint-la des de la memòria del
+// navegador i tapa la consola. Es treu sol, una sola vegada per pestanya.
+(function(){
+  if (!('serviceWorker' in navigator)) return;
+  var propi = new URL('./sw.js', location.href).href;
+  navigator.serviceWorker.getRegistrations().then(function(regs){
+    var fora = regs.filter(function(r){
+      var s = (r.active || r.installing || r.waiting || {}).scriptURL || '';
+      return s && s !== propi;
+    });
+    if (!fora.length) return;
+    if (sessionStorage.getItem('esparta-netejat')) return;
+    sessionStorage.setItem('esparta-netejat', '1');
+    Promise.all(fora.map(function(r){ return r.unregister(); }))
+      .then(function(){
+        return (window.caches && caches.keys) ? caches.keys().then(function(k){
+          return Promise.all(k.map(function(n){ return caches.delete(n); }));
+        }) : null;
+      })
+      .then(function(){ location.reload(); });
+  }).catch(function(){});
+})();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="./js/core.js"></script>
+<script src="./js/shell.js"></script>
+<script src="./js/panell.js"></script>
+<script src="./js/pesatges.js"></script>
+<script src="./js/pla-atleta.js"></script>
+<script src="./js/avisos.js"></script>
+<script src="./js/missatges.js"></script>
+<script src="./js/espartans.js"></script>
+<script src="./js/exercicis.js"></script>
+<script src="./js/rutines.js"></script>
+<script src="./js/plans.js"></script>
+<script src="./js/aliments.js"></script>
+<script src="./js/receptes.js"></script>
+<script src="./js/dietes.js"></script>
+<script src="./js/administracio.js"></script>
+<script src="./js/compte.js"></script>
+<script>window.ESPARTA.arrenca();</script>
+</body>
+</html>
