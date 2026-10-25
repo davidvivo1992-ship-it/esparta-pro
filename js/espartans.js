@@ -103,6 +103,10 @@ function fitxa(cont){
   cos.appendChild(E.carregant());
   cont.appendChild(cos);
 
+  // Obrir la fitxa ensenya pesatges, perimetres i notes de salut:
+  // queda anotat qui ho ha fet i de qui.
+  E.registra('obre_fitxa', 'athletes', vista.id);
+
   Promise.all([
     E.sb.from('athletes')
       .select('*,usuari:profiles!athletes_user_id_fkey(nom,cognoms,email,telefon),'+

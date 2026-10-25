@@ -208,6 +208,94 @@ function llista(cont){
       caixa.appendChild(lo);
     }
   });
+
+  registreAccessos(cos);
+}
+
+// ── Qui ha obert les dades de salut de qui ──────────────────
+// Es carrega nomes quan es demana: a la llarga son moltes anotacions i
+// no cal fer-les baixar cada cop que s'obre Administracio.
+function registreAccessos(cos){
+  var ACCIONS = {
+    obre_fitxa:   'ha obert la fitxa de',
+    obre_pesatge: 'ha obert un pesatge de',
+    desa_pesatge: 'ha desat un pesatge de'
+  };
+
+  cos.appendChild(h('div','height:26px'));
+  var cap = h('div','display:flex;align-items:baseline;gap:11px;margin-bottom:5px');
+  cap.appendChild(E.titol('Registre d\'accessos', 15));
+  cap.appendChild(h('div','font-size:12px;color:'+C.apagat,'dades de salut'));
+  cos.appendChild(cap);
+  cos.appendChild(h('div','font-size:12px;color:'+C.apagat+';line-height:1.55;'+
+    'max-width:620px;margin-bottom:12px',
+    'Cada vegada que alg\u00fa obre les dades de salut d\'un Espart\u00e0 des de la '+
+    'consola queda anotat aquí. Només ho veus tu, i no es pot esborrar ni '+
+    'modificar: a la base de dades aquest registre només admet afegir-hi.'));
+
+  var zona = h('div');
+  cos.appendChild(zona);
+
+  var b = E.boto('Veure el registre', function(){
+    E.buida(zona);
+    zona.appendChild(E.carregant('Llegint el registre\u2026'));
+
+    Promise.all([
+      E.sb.from('audit_log')
+        .select('id,created_at,accio,entitat,entitat_id,detall,'+
+                'qui:profiles!audit_log_actor_id_fkey(nom,cognoms,role)')
+        .order('created_at', { ascending:false }).limit(60),
+      E.sb.from('athletes')
+        .select('id,usuari:profiles!athletes_user_id_fkey(nom,cognoms)')
+    ]).then(function(r){
+      E.buida(zona);
+      if (r[0].error){ zona.appendChild(E.avis(r[0].error.message)); return; }
+
+      var noms = {};
+      (r[1].data || []).forEach(function(a){
+        noms[a.id] = E.nomComplet(a.usuari);
+      });
+
+      var files = r[0].data || [];
+      if (!files.length){
+        zona.appendChild(E.buit('Encara no hi ha cap anotaci\u00f3. Obre la fitxa d\'un '+
+          'Espart\u00e0 i torna aqu\u00ed.'));
+        return;
+      }
+
+      var l = h('div','display:flex;flex-direction:column;gap:1px;background:'+C.vora);
+      files.forEach(function(x){
+        var f = h('div','background:'+C.panell+';padding:11px 15px;display:flex;'+
+          'justify-content:space-between;align-items:baseline;gap:14px;flex-wrap:wrap');
+
+        var t = h('div','min-width:0;flex:1');
+        var qui = E.nomComplet(x.qui) || '(compte esborrat)';
+        var que = ACCIONS[x.accio] || x.accio;
+        var dequi = noms[x.entitat_id] || '(fitxa esborrada)';
+        t.appendChild(h('div','font-size:13.5px;color:'+C.os+';line-height:1.5',
+          qui + ' ' + que + ' ' + dequi));
+        if (x.qui && x.qui.role)
+          t.appendChild(h('div','font-size:10.5px;letter-spacing:.1em;'+
+            'text-transform:uppercase;font-weight:700;margin-top:2px;color:'+
+            colorRol(x.qui.role), ROLS[x.qui.role] || x.qui.role));
+        f.appendChild(t);
+
+        var q = h('div','text-align:right;flex-shrink:0');
+        q.appendChild(h('div','font-size:12px;color:'+C.pedra, E.quanFa(x.created_at)));
+        q.appendChild(h('div','font-size:10.5px;color:'+C.apagat+';margin-top:2px',
+          E.data(x.created_at)));
+        f.appendChild(q);
+
+        l.appendChild(f);
+      });
+      zona.appendChild(l);
+
+      if (files.length >= 60)
+        zona.appendChild(h('div','font-size:11.5px;color:'+C.apagat+';margin-top:9px',
+          'Es mostren les 60 anotacions més recents.'));
+    });
+  }, 'buit');
+  zona.appendChild(b);
 }
 
 // ── Alta d'entrenador o nutricionista ───────────────────────────────

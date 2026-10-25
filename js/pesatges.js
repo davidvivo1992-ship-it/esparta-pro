@@ -146,6 +146,10 @@ E.formPesatge = function(athleteId, despres, alDesar){
         return E.sb.from('measurements').upsert(reg, { onConflict:'athlete_id,data' });
       })
       .then(function(r){
+        if (!r || !r.error) E.registra('desa_pesatge', 'athletes', athleteId);
+        return r;
+      })
+      .then(function(r){
         if (r.error) throw new Error(r.error.message);
         if (alDesar) alDesar(); else E.repinta();
       })
@@ -167,6 +171,10 @@ E.formPesatge = function(athleteId, despres, alDesar){
 E.detallPesatge = function(m, despres){
   var obert = despres.parentNode.querySelector('[data-detall="'+m.id+'"]');
   if (obert){ obert.remove(); return; }
+
+  // Aqui dins hi ha perimetres, notes i fotos de progres.
+  E.registra('obre_pesatge', 'athletes', m.athlete_id,
+    { pesatge: m.id, data: m.data });
   var altres = despres.parentNode.querySelectorAll('[data-detall]');
   for (var i=0;i<altres.length;i++) altres[i].remove();
 

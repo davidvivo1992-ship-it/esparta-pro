@@ -333,6 +333,23 @@ E.formContrasenya = function(){
   return b;
 };
 
+// Anota al registre d'accessos qui ha obert quines dades de salut.
+// L'autor no el posem nosaltres: el posa la base de dades a partir de
+// la sessio (migracio 19), o sigui que no es pot anotar en nom d'un
+// altre. Si l'anotacio falla, la pantalla segueix igual: un registre
+// que no es pot escriure no ha de deixar l'entrenador sense feina.
+E.registra = function(accio, entitat, id, detall){
+  if (!E.sb || !E.perfil) return;
+  try {
+    E.sb.rpc('registra_acces', {
+      p_accio: accio,
+      p_entitat: entitat,
+      p_entitat_id: id || null,
+      p_detall: detall || null
+    }).then(function(){}, function(){});
+  } catch (e){}
+};
+
 E.targeta = function(){
   return E.h('div','background:'+E.C.panell+';border:1px solid '+E.C.vora+';padding:20px 22px');
 };
