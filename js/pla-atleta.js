@@ -68,12 +68,14 @@ function pintaPla(cont, a, athleteId){
   zonaCal.appendChild(E.carregant());
   Promise.all([
     E.sb.from('assignment_days')
-      .select('*,rutina:routines!assignment_days_routine_id_fkey(nom,tipus),'+
-              'cardio_rutina:routines!assignment_days_cardio_routine_id_fkey(nom,tipus,rondes)')
+      .select('*,rutina:routines!assignment_days_routine_id_fkey(nom,tipus,deleted_at),'+
+              'cardio_rutina:routines!assignment_days_cardio_routine_id_fkey'+
+              '(nom,tipus,rondes,deleted_at)')
       .eq('assignment_id', a.id),
     E.sb.from('plan_days')
-      .select('*,rutina:routines!plan_days_routine_id_fkey(nom,tipus),'+
-              'cardio_rutina:routines!plan_days_cardio_routine_id_fkey(nom,tipus,rondes)')
+      .select('*,rutina:routines!plan_days_routine_id_fkey(nom,tipus,deleted_at),'+
+              'cardio_rutina:routines!plan_days_cardio_routine_id_fkey'+
+              '(nom,tipus,rondes,deleted_at)')
       .eq('plan_id', pla.id),
     editant === a.id
       ? E.sb.from('routines').select('id,nom,tipus').eq('mena','forca')
@@ -87,20 +89,10 @@ function pintaPla(cont, a, athleteId){
     E.buida(zonaCal);
     var propis = r[0].data || [], plantilla = r[1].data || [];
 
-    // Si encara no te calendari propi, es copia de la plantilla al vol
-    if (!propis.length && plantilla.length && E.perfil.role === 'coach'){
-      var files = plantilla.map(function(d){
-        return { assignment_id:a.id, setmana:d.setmana, dia_setmana:d.dia_setmana,
-                 routine_id:d.routine_id, cardio:d.cardio,
-                 cardio_routine_id:d.cardio_routine_id, pesatge:d.pesatge };
-      });
-      E.sb.from('assignment_days').insert(files).then(function(rr){
-        if (rr.error){ zonaCal.appendChild(E.avis(rr.error.message)); return; }
-        pintaPla(cont, a, athleteId);
-      });
-      zonaCal.appendChild(E.carregant('Preparant el calendari d\'aquest Espartà…'));
-      return;
-    }
+    // Abans, nomes d'obrir aquesta pantalla, la plantilla es copiava a
+    // assignment_days. A partir d'aquell moment l'Esparta deixava de seguir el
+    // pla i els canvis que l'entrenador feia a la plantilla ja no li arribaven,
+    // sense que ningu l'avises. Ara la copia nomes es fa en desar l'editor.
 
     var dades = propis.length ? propis : plantilla;
     var mapa = {};
@@ -117,9 +109,12 @@ function pintaPla(cont, a, athleteId){
 function activitatsDe(dia){
   var l = [];
   if (!dia) return l;
-  if (dia.rutina) l.push({ t:dia.rutina.nom, c:C.os, gruix:'600' });
+  if (dia.rutina) l.push({ t:dia.rutina.nom, gruix:'600',
+    c: dia.rutina.deleted_at ? C.ambre : C.os, fant: !!dia.rutina.deleted_at });
   else if (dia.routine_id) l.push({ t:'Rutina', c:C.os, gruix:'600' });
-  if (dia.cardio_rutina) l.push({ t:dia.cardio_rutina.nom, c:C.oliva, gruix:'600' });
+  if (dia.cardio_rutina) l.push({ t:dia.cardio_rutina.nom, gruix:'600',
+    c: dia.cardio_rutina.deleted_at ? C.ambre : C.oliva,
+    fant: !!dia.cardio_rutina.deleted_at });
   else if (dia.cardio_routine_id) l.push({ t:'Cardio programat', c:C.oliva, gruix:'600' });
   else if (dia.cardio) l.push({ t:dia.cardio, c:C.oliva, gruix:'500' });
   if (dia.pesatge) l.push({ t:'Pesatge i mides', c:C.or, gruix:'600' });
@@ -148,6 +143,8 @@ function lecturaCal(zona, mapa, setmanes, esPlantilla){
       else acts.forEach(function(x, i){
         c.appendChild(h('div','font-size:12px;font-weight:'+x.gruix+';color:'+x.c+';'+
           'line-height:1.35'+(i ? ';margin-top:4px' : ''), x.t));
+        if (x.fant) c.appendChild(h('div','font-size:9.5px;color:'+C.ambre+';'+
+          'margin-top:1px','ja no és a la biblioteca'));
       });
       g.appendChild(c);
     }
@@ -164,6 +161,16 @@ function editorCal(zona, a, mapa, setmanes, rutines, cont, athleteId){
   var opcions = [{ v:'', t:'Sense rutina' }].concat(rutines.map(function(x){
     return { v:x.id, t:x.nom + (x.tipus ? '  \u00b7  ' + x.tipus : '') };
   }));
+
+  // Una rutina esborrada de la biblioteca no sortia al desplegable: el dia es
+  // pintava com a «Sense rutina» pero es desava igual, i no hi havia manera de
+  // treure-la ni del pla ni del planning de l'Esparta.
+  function opcionsDe(id){
+    if (!id) return opcions;
+    for (var i = 0; i < opcions.length; i++) if (opcions[i].v === id) return opcions;
+    return opcions.concat([E.opcioFantasma(id)]);
+  }
+  var fantasmes = 0;
 
   // Un dia pot tenir rutina, cardio i pesatge alhora
   var rut = {}, car = {}, pes = {};
@@ -208,21 +215,25 @@ function editorCal(zona, a, mapa, setmanes, rutines, cont, athleteId){
         (function(dia){
           var k = clau(setmana, dia);
           var teFeina = !!(rut[k] || car[k] || pes[k]);
+          var opcionsDia = opcionsDe(rut[k]);
+          var fant = opcionsDia !== opcions;
+          if (fant) fantasmes++;
           var c = h('div','background:'+C.panell+';border:1px solid '+
-            (teFeina ? E.accent()+'44' : C.vora)+';padding:9px 10px');
+            (fant ? C.ambre+'66' : (teFeina ? E.accent()+'44' : C.vora))+';padding:9px 10px');
           c.appendChild(h('div','font-size:9px;letter-spacing:.1em;text-transform:uppercase;'+
-            'font-weight:700;color:'+(teFeina ? E.accent() : C.apagat)+';margin-bottom:6px',
-            DIES[dia-1].slice(0,2)));
+            'font-weight:700;color:'+(fant ? C.ambre : (teFeina ? E.accent() : C.apagat))+';'+
+            'margin-bottom:6px', DIES[dia-1].slice(0,2)));
 
           var sel = document.createElement('select');
-          opcions.forEach(function(o){
+          opcionsDia.forEach(function(o){
             var op = document.createElement('option');
             op.value = o.v; op.textContent = o.t;
             if (rut[k] === o.v) op.selected = true;
             sel.appendChild(op);
           });
           sel.setAttribute('style','width:100%;padding:7px 8px;background:'+C.fons+';'+
-            'border:1px solid rgba(194,176,106,.24);color:'+C.os+';font-size:11.5px;'+
+            'border:1px solid '+(fant ? C.ambre+'66' : 'rgba(194,176,106,.24)')+';'+
+            'color:'+(fant ? C.ambre : C.os)+';font-size:11.5px;'+
             "font-family:'Barlow',sans-serif");
           sel.onchange = function(){ rut[k] = sel.value; refresca(); };
           c.appendChild(sel);
@@ -251,6 +262,25 @@ function editorCal(zona, a, mapa, setmanes, rutines, cont, athleteId){
       zona.appendChild(fila);
     })(s2);
   }
+
+  if (fantasmes)
+    zona.appendChild(E.avis('Hi ha ' + fantasmes +
+      (fantasmes === 1 ? ' dia amb una rutina' : ' dies amb una rutina') +
+      ' que ja no és a la biblioteca. Surten marcades: tria «Sense rutina» i '+
+      'desa per treure-les del planning d\'aquest Espartà.', C.ambre));
+
+  // Els noms de les esborrades, per ensenyar-les pel seu nom i no per un codi
+  var idsF = [], idsC = [];
+  for (var s3 = 1; s3 <= setmanes; s3++)
+    for (var d3 = 1; d3 <= 7; d3++){
+      var k3 = clau(s3, d3);
+      if (rut[k3]) idsF.push(rut[k3]);
+      if (car[k3] && car[k3].routine_id) idsC.push(car[k3].routine_id);
+    }
+  if (idsF.length || idsC.length)
+    Promise.all([E.carregaFantasmes(idsF, rutines),
+                 E.carregaFantasmes(idsC, E.CARDIO_RUTINES || [])])
+      .then(function(c){ if (c[0] || c[1]) refresca(); });
 
   function refresca(){
     E.buida(zona);

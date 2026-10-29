@@ -449,9 +449,49 @@ E.nomCardio = function(v, rutines){
     var l = rutines || E.CARDIO_RUTINES || [];
     for (var i = 0; i < l.length; i++)
       if (l[i].id === x.routine_id) return l[i].nom;
+    if (E.FANTASMES[x.routine_id]) return E.nomFantasma(x.routine_id);
     return 'Cardio programat';
   }
   return (x.text || '').trim();
+};
+
+// ── Rutines fantasma ────────────────────────────────────────
+// Una rutina esborrada de la biblioteca pot seguir enganxada a un dia d'un pla
+// o del calendari d'un Esparta. Els desplegables nomes porten rutines vives:
+// aquell dia sortia com a «Sense rutina» pero es tornava a desar igual, i no hi
+// havia manera de treure'l. Aqui se'n recorden els noms per ensenyar-les
+// marcades i poder-les buidar.
+E.FANTASMES = {};
+
+E.nomFantasma = function(id){
+  var x = E.FANTASMES[id];
+  return (x && x.nom) || 'Rutina que ja no hi és';
+};
+
+// ids: els routine_id que fa servir el calendari. vives: les que porta el
+// desplegable. Torna una promesa; quan es resol, E.FANTASMES ja esta ple.
+E.carregaFantasmes = function(ids, vives){
+  var falten = [];
+  (ids || []).forEach(function(id){
+    if (!id || falten.indexOf(id) !== -1 || E.FANTASMES[id]) return;
+    for (var i = 0; i < (vives || []).length; i++)
+      if (vives[i].id === id) return;
+    falten.push(id);
+  });
+  if (!falten.length) return Promise.resolve(false);
+  return E.sb.from('routines').select('id,nom,tipus,mena,rondes').in('id', falten)
+    .then(function(r){
+      (r.data || []).forEach(function(x){ E.FANTASMES[x.id] = x; });
+      falten.forEach(function(id){
+        if (!E.FANTASMES[id]) E.FANTASMES[id] = { id:id, nom:'Rutina que ja no hi és' };
+      });
+      return true;
+    });
+};
+
+// L'opcio que la fa visible dins un desplegable de rutines de forca
+E.opcioFantasma = function(id){
+  return { v:id, t:E.nomFantasma(id) + '  ·  ja no és a la biblioteca' };
 };
 
 // canvia(valor, repintar): repintar=true nomes quan es pot refer la
@@ -486,9 +526,19 @@ E.controlCardio = function(valor, canvia, mida){
 
   sel.value = v.routine_id ? 'r:' + v.routine_id
             : (v.text ? (esPreset ? v.text : '__altre') : '');
+  // Si la sessio ja no es a la biblioteca, el desplegable es quedava a «Sense
+  // cardio» pero el dia la seguia desant igual. Ara surt marcada i es pot treure.
+  var fantasma = !!v.routine_id && sel.value !== 'r:' + v.routine_id;
+  if (fantasma){
+    var gf = document.createElement('optgroup');
+    gf.label = 'Ja no és a la biblioteca';
+    op('r:' + v.routine_id, E.nomFantasma(v.routine_id), gf);
+    sel.appendChild(gf);
+    sel.value = 'r:' + v.routine_id;
+  }
   sel.setAttribute('style','width:100%;padding:'+farcit+';background:'+E.C.fons+';'+
-    'border:1px solid rgba(194,176,106,.24);color:'+
-    (v.routine_id ? E.C.or : (v.text ? E.C.oliva : E.C.os))+';'+
+    'border:1px solid '+(fantasma ? E.C.ambre+'66' : 'rgba(194,176,106,.24)')+';color:'+
+    (fantasma ? E.C.ambre : (v.routine_id ? E.C.or : (v.text ? E.C.oliva : E.C.os)))+';'+
     "font-size:"+lletra+";font-family:'Barlow',sans-serif");
   w.appendChild(sel);
 
