@@ -338,7 +338,7 @@ function zonaImatges(x, esborrany){
       x2.title = 'Treure aquesta imatge';
       x2.setAttribute('style','position:absolute;top:0;right:0;width:24px;height:24px;'+
         'background:'+C.fons+'dd;border:none;border-left:1px solid '+C.vora+';'+
-        'border-bottom:1px solid '+C.vora+';color:'+C.accio+';cursor:pointer;font-size:14px;'+
+        'border-bottom:1px solid '+C.vora+';color:'+C.brasa+';cursor:pointer;font-size:14px;'+
         'line-height:1');
       x2.onclick = function(){
         esborrany.imatges.splice(i, 1);

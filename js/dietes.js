@@ -8,13 +8,15 @@ var ORDRE_APAT = ['esmorzar','mig_mati','dinar','berenar','sopar','recuperador']
 
 // Els macros es calculen dels ingredients: la vista recipe_macros no es pot
 // enllacar des de l'API, aixi que el calcul es fa aqui.
-function kcalDe(items, mapa){
+// Els grams son el TOTAL de la recepta: per comparar-ho amb l'objectiu diari
+// del pla cal UNA racio, que es el que es menja.
+function kcalDe(items, mapa, racions){
   var k = 0;
   (items || []).forEach(function(it){
     var a = mapa[it.food_id]; if (!a) return;
     k += (a.kcal_100 || 0) * (Number(it.grams) || 0) / 100;
   });
-  return Math.round(k);
+  return Math.round(k / (Number(racions) > 0 ? Number(racions) : 1));
 }
 
 function llista(cont){
@@ -83,7 +85,7 @@ function fitxa(cont){
 
   Promise.all([
     E.sb.from('diet_plans')
-      .select('*,diet_plan_options(*,recepta:recipes(nom,recipe_items(food_id,grams)))')
+      .select('*,diet_plan_options(*,recepta:recipes(nom,racions,recipe_items(food_id,grams)))')
       .eq('id', vista.id).single(),
     E.sb.from('diet_assignments')
       .select('id,data_inici,estat,'+
@@ -127,7 +129,7 @@ function fitxa(cont){
       var l = h('div','display:flex;flex-direction:column;gap:1px;background:'+C.vora+';'+
         'margin-bottom:20px');
       grups[t].forEach(function(o){
-        var kc = o.recepta ? kcalDe(o.recepta.recipe_items, mapaAl) : 0;
+        var kc = o.recepta ? kcalDe(o.recepta.recipe_items, mapaAl, o.recepta.racions) : 0;
         var f = h('div','display:flex;justify-content:space-between;background:'+C.panell+';'+
           'padding:11px 15px');
         f.appendChild(h('div','font-size:13.5px;color:'+C.os,
@@ -247,7 +249,7 @@ function editor(cont){
   cont.appendChild(cos);
 
   Promise.all([
-    E.sb.from('recipes').select('id,nom,tipus_apat,recipe_items(food_id,grams)')
+    E.sb.from('recipes').select('id,nom,tipus_apat,racions,recipe_items(food_id,grams)')
       .is('deleted_at', null).order('nom'),
     E.sb.from('foods').select('id,kcal_100')
   ]).then(function(rr){
@@ -309,11 +311,11 @@ function editor(cont){
             f.style.borderColor = chk.checked ? E.accent()+'66' : C.vora;
           };
           f.appendChild(chk);
-          var kc = kcalDe(x.recipe_items, mapaAl);
+          var kc = kcalDe(x.recipe_items, mapaAl, x.racions);
           var t = h('div','flex:1;min-width:0');
           t.appendChild(h('div','font-size:13.5px;font-weight:600;color:'+C.os, x.nom));
           f.appendChild(t);
-          if (kc) f.appendChild(h('div','font-size:11.5px;color:'+C.apagat, kc + ' kcal'));
+          if (kc) f.appendChild(h('div','font-size:11.5px;color:'+C.apagat, kc + ' kcal/ració'));
           box.appendChild(f);
         });
         cos.appendChild(box);

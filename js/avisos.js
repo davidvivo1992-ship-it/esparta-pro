@@ -105,7 +105,7 @@ E.botoAvisos = function(){
       b.textContent = '…';
       (estat === 'granted' ? desactiva() : activa()).then(pinta, function(err){
         E.buida(w);
-        w.appendChild(E.h('div','font-size:10.5px;color:'+E.C.accio+';line-height:1.45',
+        w.appendChild(E.h('div','font-size:10.5px;color:'+E.C.brasa+';line-height:1.45',
           err.message));
       });
     }, 'buit');

@@ -6,7 +6,7 @@ var E = window.ESPARTA = {
     fons:'#0D0D0F', panell:'#16161A', panell2:'#1F2024',
     vora:'rgba(194,176,106,.16)', voraFort:'rgba(194,176,106,.4)',
     or:'#C2B06A', bronze:'#B08A5A', os:'#EAE7E1', pedra:'#A9A49B', apagat:'#8A8E95',
-    carmesi:'#7A0F14', accio:'#A8231B',
+    carmesi:'#7A0F14', accio:'#A8231B', brasa:'#E0533C',
     blau:'#2F5D73', verd:'#4F7A3A', oliva:'#8FA04A', ambre:'#C99A2E'
   }
 };
@@ -104,7 +104,7 @@ E.boto = function(text, accio, mena){
   if (mena === 'buit') b.setAttribute('style', base+'background:transparent;'+
     'border:1px solid rgba(194,176,106,.32);color:'+E.C.pedra);
   else if (mena === 'perill') b.setAttribute('style', base+'background:transparent;'+
-    'border:1px solid '+E.C.carmesi+';color:'+E.C.accio);
+    'border:1px solid '+E.C.carmesi+';color:'+E.C.brasa);
   else b.setAttribute('style', base+'background:'+E.accent()+';'+
     'border:1px solid rgba(194,176,106,.38);color:#F6EFE4;'+
     'box-shadow:inset 0 1px 0 rgba(255,255,255,.08)');

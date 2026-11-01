@@ -51,7 +51,7 @@ function pantallaConfig(msg){
 
 function pantallaError(msg){
   var c = centrat();
-  c.appendChild(h('div','color:'+C.accio+';font-weight:700;font-size:15px;margin-bottom:8px',
+  c.appendChild(h('div','color:'+C.brasa+';font-weight:700;font-size:15px;margin-bottom:8px',
     'No es pot connectar'));
   c.appendChild(h('div','font-size:13px;color:'+C.apagat+';line-height:1.55;'+
     'margin-bottom:16px;word-break:break-word', msg));

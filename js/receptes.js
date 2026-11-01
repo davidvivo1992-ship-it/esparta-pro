@@ -8,7 +8,10 @@ var TIPUS = { esmorzar:'Esmorzar', mig_mati:'Mig matí', dinar:'Dinar', berenar:
 function opcionsTipus(){
   return Object.keys(TIPUS).map(function(k){ return { v:k, t:TIPUS[k] }; });
 }
-function macrosDe(items, mapa){
+// Els grams dels ingredients son el TOTAL de la recepta, per a totes les
+// racions. Qui se la menja en fa UNA racio, aixi que tot el que es compara
+// amb l'objectiu diari d'un pla va per racio.
+function macrosDe(items, mapa, racions){
   var m = { kcal:0, prot:0, carb:0, greix:0 };
   items.forEach(function(it){
     var f = mapa[it.food_id]; if (!f) return;
@@ -18,8 +21,9 @@ function macrosDe(items, mapa){
     m.carb  += f.carb_100  * f2;
     m.greix += f.greix_100 * f2;
   });
-  return { kcal:Math.round(m.kcal), prot:Math.round(m.prot),
-           carb:Math.round(m.carb), greix:Math.round(m.greix) };
+  var r = Number(racions) > 0 ? Number(racions) : 1;
+  return { kcal:Math.round(m.kcal / r), prot:Math.round(m.prot / r),
+           carb:Math.round(m.carb / r), greix:Math.round(m.greix / r) };
 }
 
 function llista(cont){
@@ -53,7 +57,7 @@ function llista(cont){
       }
       var box = h('div','display:flex;flex-direction:column;gap:7px');
       dades.forEach(function(x){
-        var mac = macrosDe(x.recipe_items || [], mapa);
+        var mac = macrosDe(x.recipe_items || [], mapa, x.racions);
         var f = h('div','display:flex;align-items:center;gap:15px;padding:14px 17px;'+
           'background:'+C.panell+';border:1px solid '+C.vora+';cursor:pointer');
         f.onmouseenter = function(){ f.style.borderColor = E.accent()+'66'; };
@@ -63,7 +67,7 @@ function llista(cont){
         t.appendChild(h('div','font-size:15px;font-weight:600;color:'+C.os, x.nom));
         t.appendChild(h('div','font-size:11.5px;color:'+C.apagat+';margin-top:3px',
           x.racions + (x.racions === 1 ? ' ració' : ' racions') +
-          (mac ? ' \u00b7 ' + mac.kcal + ' kcal' : '')));
+          (mac ? ' \u00b7 ' + mac.kcal + ' kcal per raci\u00f3' : '')));
         f.appendChild(t);
         f.appendChild(E.etiqueta(TIPUS[x.tipus_apat] || x.tipus_apat, C.verd));
         box.appendChild(f);
@@ -92,7 +96,8 @@ function fitxa(cont){
       var items = x.recipe_items || [];
       var mapaIt = {};
       items.forEach(function(it){ if (it.aliment) mapaIt[it.food_id] = it.aliment; });
-      var m0 = macrosDe(items, mapaIt);
+      var rac = Number(x.racions) > 0 ? Number(x.racions) : 1;
+      var m0 = macrosDe(items, mapaIt, rac);
       var mac = { kcal:m0.kcal, prot_g:m0.prot, carb_g:m0.carb, greix_g:m0.greix };
 
       var cap = h('div','margin-bottom:20px');
@@ -117,6 +122,11 @@ function fitxa(cont){
         g.appendChild(c);
       });
       cos.appendChild(g);
+      cos.appendChild(h('div','font-size:12px;color:'+C.apagat+';margin:-16px 0 24px;'+
+        'line-height:1.5', rac > 1
+          ? 'Per ració. La recepta en fa ' + rac + ': en total, ' + (mac.kcal * rac) +
+            ' kcal. Els ingredients de sota són per a les ' + rac + ' racions.'
+          : 'Per ració. Els ingredients de sota són per a aquesta ració.'));
 
       if (x.instruccions){
         cos.appendChild(E.titol('Elaboració', 15));
@@ -193,13 +203,17 @@ function editor(cont){
       var g = h('div','display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;margin-bottom:13px');
       g.appendChild(nom); g.appendChild(tip); g.appendChild(rac);
       dalt.appendChild(g);
+      dalt.appendChild(h('div','font-size:12px;color:'+C.apagat+';line-height:1.5;'+
+        'margin:-4px 0 13px', 'Els grams dels ingredients són el TOTAL de la recepta, '+
+        'per a totes les racions. Les kcal que es comparen amb l\'objectiu del pla '+
+        'són les d\'una ració.'));
       var ins = E.camp({ et:'Elaboració', tipus:'textarea', files:3,
         marca:'Passos per preparar-ho…', valor:esborrany.instruccions });
       dalt.appendChild(ins);
       cos.appendChild(dalt);
       nom.control.oninput = function(){ esborrany.nom = nom.control.value; };
       tip.control.onchange = function(){ esborrany.tipus_apat = tip.control.value; };
-      rac.control.oninput = function(){ esborrany.racions = rac.control.value; };
+      rac.control.oninput = function(){ esborrany.racions = rac.control.value; pintaResum(); };
       ins.control.oninput = function(){ esborrany.instruccions = ins.control.value; };
 
       var capI = h('div','display:flex;align-items:center;justify-content:space-between;'+
@@ -233,9 +247,10 @@ function editor(cont){
       // s'hi quedava la primera xifra.
       function pintaResum(){
         E.buida(resum);
-        var m = macrosDe(esborrany.items, mapa);
+        var nr = Number(esborrany.racions) > 0 ? Number(esborrany.racions) : 1;
+        var m = macrosDe(esborrany.items, mapa, nr);
         var g4 = h('div','display:grid;grid-template-columns:repeat(4,1fr);gap:1px;'+
-          'background:'+C.vora+';margin-bottom:16px');
+          'background:'+C.vora);
         [['Kcal',m.kcal],['Proteïna',m.prot+'g'],['Carbohidrats',m.carb+'g'],
          ['Greix',m.greix+'g']].forEach(function(d){
           var c = h('div','background:'+C.panell+';padding:11px;text-align:center');
@@ -246,6 +261,10 @@ function editor(cont){
           g4.appendChild(c);
         });
         resum.appendChild(g4);
+        resum.appendChild(h('div','font-size:11.5px;color:'+C.apagat+';line-height:1.5;'+
+          'margin:7px 0 16px', nr > 1
+            ? 'Per ració, de ' + nr + '. Tota la recepta: ' + (m.kcal * nr) + ' kcal.'
+            : 'Per ració.'));
       }
 
       function pintaItems(){
@@ -273,7 +292,7 @@ function editor(cont){
           var esb = document.createElement('button');
           esb.textContent = '\u00d7';
           esb.setAttribute('style','width:29px;height:29px;flex-shrink:0;background:transparent;'+
-            'border:1px solid '+C.carmesi+'66;color:'+C.accio+';cursor:pointer;font-size:14px');
+            'border:1px solid '+C.carmesi+'66;color:'+C.brasa+';cursor:pointer;font-size:14px');
           esb.onclick = function(){ esborrany.items.splice(i,1); pinta(); };
           f.appendChild(esb);
           contenidor.appendChild(f);

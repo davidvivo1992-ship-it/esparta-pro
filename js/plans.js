@@ -161,6 +161,8 @@ function fitxa(cont){
     var as = h('div','margin-top:26px');
     as.appendChild(E.titol('Espartans amb aquest pla', 15));
     var la = h('div','margin-top:11px;display:flex;flex-direction:column;gap:1px;background:'+C.vora);
+    var laFi = h('div','margin-top:11px;display:none;flex-direction:column;gap:1px;'+
+      'background:'+C.vora);
     var da = (r[1].data || []);
     if (r[1].error) la.appendChild(E.avis(r[1].error.message));
     else if (!da.length) la.appendChild(E.buit('Aquest pla no està assignat a ningú.'));
@@ -188,9 +190,31 @@ function fitxa(cont){
       }
       caixes[a.id] = dr;
       f.appendChild(dr);
-      la.appendChild(f);
+      // L'historic s'amaga: una fitxa amb cinc files mortes no es llegeix.
+      (a.estat === 'finalitzat' || a.estat === 'cancellat' ? laFi : la).appendChild(f);
     });
     as.appendChild(la);
+    if (!la.childNodes.length && da.length)
+      la.appendChild(E.buit('Cap Espartà el segueix ara mateix.'));
+
+    var nFi = laFi.childNodes.length;
+    if (nFi){
+      var obertFi = { v:false };
+      var bFi = E.boto(nFi === 1 ? 'Veure 1 assignació finalitzada'
+                                 : 'Veure ' + nFi + ' assignacions finalitzades',
+        function(){
+          obertFi.v = !obertFi.v;
+          laFi.style.display = obertFi.v ? 'flex' : 'none';
+          bFi.textContent = obertFi.v
+            ? 'Amagar l\'històric'
+            : (nFi === 1 ? 'Veure 1 assignació finalitzada'
+                         : 'Veure ' + nFi + ' assignacions finalitzades');
+        }, 'buit');
+      bFi.style.padding = '7px 13px'; bFi.style.fontSize = '11.5px';
+      bFi.style.marginTop = '11px';
+      as.appendChild(bFi);
+      as.appendChild(laFi);
+    }
 
     // Qui te calendari propi ja no segueix la plantilla: els canvis que es facin
     // aqui no li arriben mai. Val mes que es vegi, i que se li pugui desfer.
@@ -427,6 +451,41 @@ function carregaEsborrany(id){
     });
 }
 
+// Avis a dalt de l'editor: aquests Espartans segueixen el pla pero tenen el
+// calendari ajustat a ma, o sigui que el que es canvii aqui no els arribara.
+function avisaQuiNoHoRebra(cont){
+  var zona = h('div','padding:0 20px');
+  cont.appendChild(zona);
+  E.sb.from('plan_assignments')
+    .select('id,atleta:athletes(usuari:profiles!athletes_user_id_fkey(nom,cognoms))')
+    .eq('plan_id', vista.id).eq('estat','actiu')
+    .then(function(r){
+      var da = r.data || [];
+      if (r.error || !da.length) return;
+      return E.sb.from('assignment_days').select('assignment_id')
+        .in('assignment_id', da.map(function(a){ return a.id; }))
+        .then(function(rp){
+          var prop = {};
+          (rp.data || []).forEach(function(x){ prop[x.assignment_id] = true; });
+          var noms = da.filter(function(a){ return prop[a.id]; })
+            .map(function(a){ return E.nomComplet(a.atleta && a.atleta.usuari); });
+          if (!noms.length) return;
+          var c = h('div','margin-top:16px;padding:12px 15px;background:'+C.ambre+'1F;'+
+            'border-left:3px solid '+C.ambre+';font-size:12.5px;color:'+C.os+';'+
+            'line-height:1.55');
+          c.appendChild(document.createTextNode(
+            (noms.length === 1 ? noms[0] + ' té' : noms.join(', ') + ' tenen') +
+            ' el calendari ajustat a mà, així que ' +
+            (noms.length === 1 ? 'no rebrà' : 'no rebran') +
+            ' els canvis que facis aquí. Per tornar-' +
+            (noms.length === 1 ? "l'hi" : "los-hi") +
+            ' a enganxar a la plantilla, ves a la fitxa del pla i prem ' +
+            '«Seguir la plantilla».'));
+          zona.appendChild(c);
+        });
+    });
+}
+
 function editor(cont){
   var nou = !vista.id;
   if (!esborrany) esborrany = { nom:'', setmanes:4, descripcio:'', dies:{} };
@@ -442,6 +501,10 @@ function editor(cont){
   var cos = E.cos();
   cos.appendChild(E.carregant('Carregant rutines…'));
   cont.appendChild(cos);
+
+  // Qui te calendari propi no rep el que es canvii aqui. Val mes saber-ho
+  // mentre s'edita que no pas descobrir-ho quan l'Esparta es queixa.
+  if (!nou) avisaQuiNoHoRebra(cont);
 
   Promise.all([
     E.sb.from('routines').select('id,nom,tipus').eq('mena','forca')
