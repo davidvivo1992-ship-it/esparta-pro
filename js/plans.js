@@ -209,7 +209,10 @@ function fitxa(cont){
             et.title = 'Aquest Espartà té el calendari ajustat a mà. Els canvis '+
               'que facis a la plantilla del pla no li arriben.';
             dr.insertBefore(et, dr.firstChild);
-            if (E.perfil.role !== 'coach') return;
+            // A una assignacio finalitzada l'etiqueta encara explica per que
+            // l'historic no quadra amb la plantilla, pero el boto no hi pinta
+            // res: desfer-ho no li canviaria res a ningu.
+            if (E.perfil.role !== 'coach' || a.estat !== 'actiu') return;
             var bt = E.boto('Seguir la plantilla', function(){
               E.buida(missA);
               var conf = h('div','padding:12px 14px;background:'+C.ambre+'22;'+
@@ -250,7 +253,11 @@ function assignar(cont){
   Promise.all([
     E.sb.from('training_plans').select('nom,setmanes').eq('id', vista.id).single(),
     E.sb.from('athletes').select('id,estat,usuari:profiles!athletes_user_id_fkey(nom,cognoms)')
-      .neq('estat','baixa')
+      .neq('estat','baixa'),
+    // Que segueix ara cadascu: per poder avisar ABANS d'assignar, no despres
+    E.sb.from('plan_assignments')
+      .select('id,athlete_id,plan_id,data_inici,pla:training_plans(nom)')
+      .eq('estat','actiu')
   ]).then(function(r){
     E.buida(cos);
     if (r[0].error){ cos.appendChild(E.avis(r[0].error.message)); return; }
@@ -258,6 +265,36 @@ function assignar(cont){
     if (!atl.length){
       cos.appendChild(E.buit('No hi ha cap Espartà actiu per assignar.'));
       return;
+    }
+
+    // Un Esparta n'hauria de tenir un de sol, pero si en te mes d'un (duplicats
+    // d'abans que hi hagues aquest avis) s'han de tancar tots, cadascu amb la
+    // seva data.
+    var actius = {};
+    (r[2].data || []).forEach(function(a){
+      (actius[a.athlete_id] = actius[a.athlete_id] || []).push(a);
+    });
+    function jaSegueixAquest(idAtleta){
+      var t = null;
+      (actius[idAtleta] || []).forEach(function(a){ if (a.plan_id === vista.id) t = a; });
+      return t;
+    }
+    // La data de fi era la d'inici del pla nou: sortien assignacions de durada
+    // zero i, si s'endarreria l'inici, acabades abans de comencar.
+    // Tot en UTC a proposit: barrejar un Date llegit en hora local amb
+    // toISOString(), que torna UTC, resta un dia de mes a Espanya.
+    function diaAbans(iso){
+      var d = new Date(iso + 'T00:00:00Z');
+      d.setUTCDate(d.getUTCDate() - 1);
+      return d.toISOString().slice(0,10);
+    }
+    function tancaElsActius(idAtleta, inici){
+      var fi = diaAbans(inici);
+      return Promise.all((actius[idAtleta] || []).map(function(a){
+        return E.sb.from('plan_assignments')
+          .update({ estat:'finalitzat', data_fi: fi < a.data_inici ? a.data_inici : fi })
+          .eq('id', a.id);
+      }));
     }
 
     var f = E.targeta();
@@ -277,26 +314,88 @@ function assignar(cont){
     g.appendChild(at); g.appendChild(di);
     f.appendChild(g);
 
+    // Que passara en prémer Assignar, dit abans de prémer-lo
+    var nota = h('div','margin-bottom:15px');
+    f.appendChild(nota);
+    function pintaNota(){
+      E.buida(nota);
+      var id = at.control.value;
+      if (!id) return;
+      var mateix = jaSegueixAquest(id);
+      if (mateix){
+        nota.appendChild(h('div','padding:11px 13px;background:'+C.ambre+'1F;'+
+          'border-left:3px solid '+C.ambre+';font-size:12.5px;color:'+C.os+';'+
+          'line-height:1.55', 'Ja segueix aquest pla des del ' +
+          E.data(mateix.data_inici) + '.'));
+        return;
+      }
+      var altres = (actius[id] || []).map(function(a){
+        return (a.pla && a.pla.nom) || 'un pla'; });
+      if (!altres.length) return;
+      nota.appendChild(h('div','font-size:12.5px;color:'+C.apagat+';line-height:1.55',
+        'Ara segueix ' + altres.join(', ') + '. En assignar-li aquest, '+
+        (altres.length === 1 ? 'aquell es marcarà' : 'aquells es marcaran') +
+        ' com a finalitzat' + (altres.length === 1 ? '' : 's') + '.'));
+    }
+    at.control.addEventListener('change', pintaNota);
+
     var miss = h('div','margin-bottom:14px');
     f.appendChild(miss);
 
+    // Reassignar el mateix pla no arregla res i omple la fitxa de duplicats.
+    // Qui ho fa, normalment el que vol es que la plantilla li torni a arribar.
+    function proposaReinici(a, inici){
+      var c = h('div','padding:12px 14px;background:'+C.ambre+'22;'+
+        'border-left:3px solid '+C.ambre);
+      c.appendChild(h('div','font-size:13px;color:'+C.os+';line-height:1.55;margin-bottom:11px',
+        'Aquest Espartà ja segueix aquest pla des del ' + E.data(a.data_inici) +
+        '. Tornar-l\'hi a assignar només duplicaria la fitxa. Si el que vols és '+
+        'que li tornin a arribar els canvis que fas a la plantilla, és això:'));
+      var bs = E.boto('Reiniciar el pla des del ' + E.data(inici), function(){
+        bs.disabled = true; bs.textContent = 'Reiniciant…';
+        E.sb.from('assignment_days').delete().eq('assignment_id', a.id)
+          .then(function(rr){
+            if (rr.error) throw new Error(rr.error.message);
+            return E.sb.from('plan_assignments')
+              .update({ data_inici: inici }).eq('id', a.id);
+          })
+          .then(function(rr){
+            if (rr && rr.error) throw new Error(rr.error.message);
+            vista.mode = 'fitxa'; E.repinta();
+          })
+          .catch(function(e){
+            E.buida(miss); miss.appendChild(E.avis(e.message));
+          });
+      });
+      bs.style.padding = '8px 15px'; bs.style.fontSize = '12px';
+      c.appendChild(bs);
+      c.appendChild(h('div','font-size:11.5px;color:'+C.apagat+';margin-top:9px;line-height:1.5',
+        'Torna a seguir el calendari de la plantilla i reinicia el comptador de '+
+        'setmanes. Els ajustos que tingui dia a dia es perden. Les sessions ja '+
+        'registrades no es toquen.'));
+      miss.appendChild(c);
+    }
+
     var b = E.boto('Assignar', function(){
       E.buida(miss);
-      if (!at.control.value){ miss.appendChild(E.avis('Tria un Espartà.')); return; }
+      var idAtleta = at.control.value;
+      if (!idAtleta){ miss.appendChild(E.avis('Tria un Espartà.')); return; }
+      var inici = di.control.value || avui;
+      var mateix = jaSegueixAquest(idAtleta);
+      if (mateix){ proposaReinici(mateix, inici); return; }
+
       b.disabled = true; b.textContent = 'Assignant…';
       // Un pla actiu per Espartà: es finalitzen els anteriors
-      E.sb.from('plan_assignments').update({ estat:'finalitzat',
-        data_fi: di.control.value || avui })
-        .eq('athlete_id', at.control.value).eq('estat','actiu')
+      tancaElsActius(idAtleta, inici)
         .then(function(){
           return E.sb.from('plan_assignments').insert({
-            athlete_id: at.control.value, plan_id: vista.id, coach_id: E.perfil.id,
-            data_inici: di.control.value || avui, estat: 'actiu'
+            athlete_id: idAtleta, plan_id: vista.id, coach_id: E.perfil.id,
+            data_inici: inici, estat: 'actiu'
           });
         }).then(function(rr){
           b.disabled = false; b.textContent = 'Assignar';
           if (rr.error){ miss.appendChild(E.avis(rr.error.message)); return; }
-          if (E.avisa) E.avisa(at.control.value, 'Tens pla nou',
+          if (E.avisa) E.avisa(idAtleta, 'Tens pla nou',
             'El teu entrenador t\'ha assignat un pla nou. Mira l\'Agenda.', 'agenda');
           vista.mode = 'fitxa'; E.repinta();
         });
@@ -305,8 +404,9 @@ function assignar(cont){
     cos.appendChild(f);
 
     cos.appendChild(h('div','max-width:580px;margin-top:13px;font-size:12px;color:'+C.apagat+';'+
-      'line-height:1.55','Si l\'Espartà ja tenia un pla actiu, es marcarà com a finalitzat. '+
-      'Les sessions ja registrades no es toquen.'));
+      'line-height:1.55','Si l\'Espartà ja tenia un altre pla actiu, es marcarà com a '+
+      'finalitzat el dia abans que comenci aquest. Les sessions ja registrades no '+
+      'es toquen.'));
   });
 }
 
