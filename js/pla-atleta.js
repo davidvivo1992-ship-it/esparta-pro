@@ -188,7 +188,10 @@ function editorCal(zona, a, mapa, setmanes, rutines, cont, athleteId){
     'margin-bottom:12px;max-width:660px',
     'Cada dia pot tenir rutina de pesos, cardio i pesatge a la vegada. '+
     'El cardio pot ser una sessió que tinguis dissenyada (HIIT, intervals) o '+
-    'cardio lliure. Deixa-ho tot buit per fer-ne un dia de descans.'));
+    'cardio lliure. Deixa-ho tot buit per fer-ne un dia de descans. '+
+    'Als dies amb rutina hi surt «Duplicar»: en fa una còpia nova a la biblioteca '+
+    'i te la deixa en aquest dia, per pujar-hi les càrregues sense tocar les '+
+    'setmanes anteriors ni la resta d\'Espartans.'));
 
   for (var s2 = 1; s2 <= setmanes; s2++){
     (function(setmana){
@@ -237,6 +240,34 @@ function editorCal(zona, a, mapa, setmanes, rutines, cont, athleteId){
             "font-family:'Barlow',sans-serif");
           sel.onchange = function(){ rut[k] = sel.value; refresca(); };
           c.appendChild(sel);
+
+          // Sobrecarrega: la mateixa sessio amb mes pes, nomes per a aquest
+          // Esparta. La copia neix ara a la biblioteca; el calendari encara
+          // s'ha de desar amb el boto de sota.
+          if (rut[k] && E.perfil.role === 'coach'){
+            var acc = h('div','display:flex;margin-top:6px');
+            var bd = E.miniAccio('Duplicar', function(){
+              var nom = null;
+              for (var i2 = 0; i2 < rutines.length; i2++)
+                if (rutines[i2].id === rut[k]) nom = rutines[i2].nom;
+              bd.disabled = true; bd.textContent = 'Duplicant…';
+              E.duplicaRutina(rut[k], E.nomSeguent(nom || E.nomFantasma(rut[k])))
+                .then(function(nova){
+                  rutines.push(nova);
+                  rutines.sort(function(a,b){
+                    return String(a.nom||'').localeCompare(String(b.nom||''), 'ca');
+                  });
+                  rut[k] = nova.id;
+                  refresca();
+                })
+                .catch(function(err){
+                  bd.disabled = false; bd.textContent = 'Duplicar';
+                  if (miss){ E.buida(miss); miss.appendChild(E.avis(err.message)); }
+                });
+            });
+            acc.appendChild(bd);
+            c.appendChild(acc);
+          }
 
           c.appendChild(E.controlCardio(car[k], function(v, rp){
             car[k] = v;

@@ -587,3 +587,91 @@ E.mesuraPeca = function(p){
   if (p.tipus_mesura === 'distancia') return (p.distancia_m || 0) + ' m';
   return (p.reps || '\u2014') + ' reps';
 };
+
+// ── Sobrecarrega · duplicar una rutina ─────────────────────────────
+//
+// La biblioteca de rutines es reutilitzable, pero una progressio de carrega
+// vol la MATEIXA sessio amb mes pes cada setmana. Fins ara calia crear una
+// rutina nova, importar-hi els exercicis de la vella i tornar al pla a
+// enganxar-la. Aixo ho fa d'una tirada.
+
+// «Dia 1 · Empenta» → «Dia 1 · Empenta · S2» → «… · S3». Si ja porta un
+// sufix de setmana, l'incrementa en comptes d'encadenar-ne un altre.
+E.nomSeguent = function(nom){
+  var n = String(nom || '').trim();
+  var m = n.match(/^(.*?)[\s\u00b7]*\u00b7\s*S(\d+)$/);
+  if (m) return m[1].trim() + ' \u00b7 S' + (parseInt(m[2], 10) + 1);
+  return n + ' \u00b7 S2';
+};
+
+// Copia la rutina sencera: capcalera i tots els exercicis amb les seves
+// series, reps, tempos, RIR, superseries i descansos. Torna la id de la nova.
+E.duplicaRutina = function(id, nom){
+  return E.sb.from('routines').select('*,routine_exercises(*)').eq('id', id).single()
+    .then(function(r){
+      if (r.error) throw new Error(r.error.message);
+      var x = r.data;
+      return E.sb.from('routines').insert({
+        nom: String(nom || E.nomSeguent(x.nom)).trim() || E.nomSeguent(x.nom),
+        coach_id: E.perfil.id,
+        tipus: x.tipus || null,
+        notes: x.notes || null,
+        mena: x.mena || 'forca',
+        rondes: x.rondes == null ? null : x.rondes,
+        descans_ronda_s: x.descans_ronda_s == null ? null : x.descans_ronda_s
+      }).select('id,nom,tipus,mena,rondes').single().then(function(n){
+        if (n.error) throw new Error(n.error.message);
+        var peces = (x.routine_exercises || [])
+          .sort(function(a, b){ return a.ordre - b.ordre; })
+          .map(function(e, i){
+            return { routine_id:n.data.id, exercise_id:e.exercise_id, ordre:i + 1,
+                     bloc:e.bloc || null, series:e.series,
+                     tipus_mesura:e.tipus_mesura || 'reps',
+                     reps:e.reps || null, temps_s:e.temps_s, distancia_m:e.distancia_m,
+                     intensitat:e.intensitat || null, tempo:e.tempo || null,
+                     descans_s:e.descans_s, descans_post_s:e.descans_post_s,
+                     superserie:e.superserie || null, rir:e.rir,
+                     notes:e.notes || null };
+          });
+        if (!peces.length) return n.data;
+        return E.sb.from('routine_exercises').insert(peces).then(function(d){
+          if (d.error) throw new Error(d.error.message);
+          return n.data;
+        });
+      });
+    });
+};
+
+// ── Encarrecs entre seccions ───────────────────────────────────────
+//
+// Des del planning d'un pla es pot obrir la rutina d'un dia, tocar-li les
+// carregues i tornar on erem. Com que la navegacio nomes es un hash, la
+// seccio d'origen deixa aqui l'encarrec i la de desti el recull un sol cop.
+E.encarrec = null;
+
+E.encarrega = function(seccio, dades){
+  E.encarrec = dades || {};
+  if (E.actual === seccio) E.repinta();
+  else E.vesA(seccio);
+};
+
+E.recullEncarrec = function(seccio){
+  var e = E.encarrec;
+  if (!e || (seccio && e.seccio && e.seccio !== seccio)) return null;
+  E.encarrec = null;
+  return e;
+};
+
+// El botonet de text que es fa servir dins les caselles del planning
+E.miniAccio = function(text, accio, color){
+  var b = document.createElement('button');
+  b.textContent = text;
+  b.setAttribute('style','flex:1;padding:4px 6px;background:transparent;'+
+    'border:1px solid '+(color || E.C.or)+'3D;color:'+(color || E.C.or)+';'+
+    'font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:700;'+
+    "cursor:pointer;font-family:'Barlow',sans-serif;border-radius:0");
+  b.onmouseenter = function(){ b.style.background = (color || E.C.or) + '1A'; };
+  b.onmouseleave = function(){ b.style.background = 'transparent'; };
+  b.onclick = accio;
+  return b;
+};

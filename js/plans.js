@@ -548,6 +548,81 @@ function editor(cont){
                         v.pesatge));
       }
 
+      // ── Sobrecarrega des del planning ─────────────────────────
+      //
+      // Una progressio de carrega vol la mateixa sessio amb mes pes cada
+      // setmana. Abans calia sortir a «Rutines», crear-ne una de nova,
+      // importar-hi els exercicis i tornar aqui a enganxar-la. Des d'aqui,
+      // «Duplicar» en fa la copia i ja la deixa en aquest dia, i «Obrir»
+      // porta a l'editor de la rutina i torna al planning en desar.
+
+      // Les opcions son el mateix array sempre (opcionsDe hi compara per
+      // identitat), aixi que s'omple de nou en comptes de refer-lo.
+      function refesOpcions(){
+        rutines.sort(function(a,b){
+          return String(a.nom||'').localeCompare(String(b.nom||''), 'ca');
+        });
+        opcionsRut.length = 1;
+        rutines.forEach(function(x){
+          opcionsRut.push({ v:x.id, t:x.nom + (x.tipus ? '  ·  ' + x.tipus : '') });
+        });
+      }
+      function nomDe(id){
+        for (var i = 0; i < rutines.length; i++)
+          if (rutines[i].id === id) return rutines[i].nom;
+        return E.nomFantasma(id);
+      }
+      function error(text){
+        if (!miss) return;
+        E.buida(miss);
+        miss.appendChild(E.avis(text));
+        miss.scrollIntoView({ behavior:'smooth', block:'center' });
+      }
+
+      function duplicaDia(val, zonaAcc){
+        E.buida(zonaAcc);
+        zonaAcc.appendChild(h('div','font-size:9.5px;letter-spacing:.07em;'+
+          'text-transform:uppercase;font-weight:700;color:'+C.or,'Duplicant…'));
+        E.duplicaRutina(val.routine_id, E.nomSeguent(nomDe(val.routine_id)))
+          .then(function(nova){
+            rutines.push(nova);
+            refesOpcions();
+            val.routine_id = nova.id;
+            pintaCalendari();
+          })
+          .catch(function(err){ error(err.message); pintaCalendari(); });
+      }
+
+      // Copia la setmana anterior pero amb una copia nova de cada rutina,
+      // per poder-hi pujar les carregues sense tocar la setmana passada.
+      function copiaIDuplica(setmana){
+        var ids = [];
+        for (var d = 1; d <= 7; d++){
+          var o = diaDe(clau(setmana-1, d));
+          if (o.routine_id && ids.indexOf(o.routine_id) === -1) ids.push(o.routine_id);
+        }
+        var mapa = {}, cua = Promise.resolve();
+        ids.forEach(function(id){
+          cua = cua.then(function(){
+            return E.duplicaRutina(id, E.nomSeguent(nomDe(id))).then(function(nova){
+              mapa[id] = nova.id;
+              rutines.push(nova);
+            });
+          });
+        });
+        return cua.then(function(){
+          refesOpcions();
+          for (var d = 1; d <= 7; d++){
+            var o = diaDe(clau(setmana-1, d));
+            esborrany.dies[clau(setmana, d)] = {
+              routine_id: mapa[o.routine_id] || o.routine_id || '',
+              cardio: o.cardio, cardio_routine_id: o.cardio_routine_id || '',
+              pesatge: o.pesatge };
+          }
+          pintaCalendari();
+        }).catch(function(err){ error(err.message); pintaCalendari(); });
+      }
+
       var dalt = E.targeta();
       dalt.style.marginBottom = '20px';
       var nom = E.camp({ et:'Nom del pla', marca:'Bloc de força \u00b7 tardor',
@@ -564,6 +639,13 @@ function editor(cont){
 
       nom.control.oninput = function(){ esborrany.nom = nom.control.value; };
       des.control.oninput = function(){ esborrany.descripcio = des.control.value; };
+
+      cos.appendChild(h('div','font-size:12px;color:'+C.apagat+';line-height:1.55;'+
+        'margin-bottom:14px;max-width:680px',
+        'A cada dia amb rutina hi tens «Obrir», que et porta a l\'editor d\'aquella '+
+        'sessió i et torna aquí en desar, i «Duplicar», que en fa una còpia i te la '+
+        'deixa en aquest dia. La còpia és per sobrecarregar: la mateixa sessió amb '+
+        'més pes, sense tocar la setmana passada.'));
 
       var zona = h('div');
       cos.appendChild(zona);
@@ -601,6 +683,22 @@ function editor(cont){
               }, 'buit');
               bc.style.padding = '5px 11px'; bc.style.fontSize = '10.5px';
               capS.appendChild(bc);
+
+              var teRut = false;
+              for (var dd = 1; dd <= 7; dd++)
+                if (diaDe(clau(setmana-1, dd)).routine_id) teRut = true;
+              if (teRut){
+                var bd = E.boto('Copiar-la duplicant les rutines', function(){
+                  bd.disabled = true; bd.textContent = 'Duplicant…';
+                  copiaIDuplica(setmana);
+                }, 'buit');
+                bd.style.padding = '5px 11px'; bd.style.fontSize = '10.5px';
+                bd.style.borderColor = C.or + '66'; bd.style.color = C.or;
+                bd.title = 'Fa una còpia nova de cada rutina de la setmana ' +
+                  (setmana-1) + ' i les posa en aquesta, per pujar-hi les càrregues '+
+                  'sense tocar la setmana passada.';
+                capS.appendChild(bd);
+              }
             }
             fila.appendChild(capS);
 
@@ -635,6 +733,19 @@ function editor(cont){
                   pintaCalendari();
                 };
                 c.appendChild(sel);
+
+                // Entrar a la sessio des del planning, com es fa a fora
+                if (val.routine_id && E.perfil.role === 'coach'){
+                  var acc = h('div','display:flex;gap:5px;margin-top:6px');
+                  acc.appendChild(E.miniAccio('Obrir', function(){
+                    E.encarrega('rutines', { seccio:'rutines', rutina:val.routine_id,
+                      mode:'editor', mena:'forca', tornar:'plans' });
+                  }));
+                  acc.appendChild(E.miniAccio('Duplicar', function(){
+                    duplicaDia(val, acc);
+                  }));
+                  c.appendChild(acc);
+                }
 
                 // Un dia pot tenir pesos, cardio i pesatge alhora
                 c.appendChild(E.controlCardio(

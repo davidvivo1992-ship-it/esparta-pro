@@ -8,6 +8,11 @@
 var E = window.ESPARTA, h = E.h, C = E.C;
 var vista = { mode:'llista', id:null, mena:'forca' };
 var esborrany = null;
+// Filtre de la llista. Amb una progressio de carrega la biblioteca creix
+// de pressa i quatre rutines es miren a ull, pero quaranta no.
+var cerca = '';
+// Si hem arribat aqui des del planning d'un pla, cap on tornar en acabar.
+var tornarA = null;
 
 var TIPUS = {
   forca: ['Força','Hipertròfia','Resistència','Mobilitat','Tècnica'],
@@ -69,6 +74,15 @@ function llista(cont){
   var cos = E.cos();
   cont.appendChild(cos);
   cos.appendChild(barraMenes());
+
+  var cercador = E.camp({ et:'Buscar',
+    marca:card ? 'Nom o tipus de la sessió…' : 'Nom o tipus de la rutina…',
+    valor:cerca });
+  cercador.style.maxWidth = '340px';
+  cercador.style.marginBottom = '14px';
+  cercador.style.display = 'none';
+  cos.appendChild(cercador);
+
   var zona = h('div');
   zona.appendChild(E.carregant());
   cos.appendChild(zona);
@@ -90,8 +104,30 @@ function llista(cont){
           : "L'entrenador encara no ha creat cap rutina d'aquesta mena."));
         return;
       }
+      // El cercador nomes apareix quan la llista ja no es mira d'un cop d'ull
+      if (dades.length >= 6){
+        cercador.style.display = '';
+        cercador.control.oninput = function(){
+          cerca = cercador.control.value;
+          pintaFiles();
+        };
+      } else cerca = '';
+      pintaFiles();
+
+      function pintaFiles(){
+      E.buida(zona);
+      var q = cerca.trim().toLowerCase();
+      var vis = !q ? dades : dades.filter(function(x){
+        return ((x.nom || '') + ' ' + (x.tipus || '')).toLowerCase().indexOf(q) !== -1;
+      });
+      if (!vis.length){
+        zona.appendChild(E.buit('Cap rutina que digui «' + cerca.trim() + '».'));
+        return;
+      }
+      if (q) zona.appendChild(h('div','font-size:11px;color:'+C.apagat+';margin-bottom:9px',
+        vis.length + ' de ' + dades.length));
       var box = h('div','display:flex;flex-direction:column;gap:7px');
-      dades.forEach(function(x){
+      vis.forEach(function(x){
         var n = (x.routine_exercises || []).length;
         var f = h('div','display:flex;align-items:center;gap:15px;padding:14px 17px;'+
           'background:'+C.panell+';border:1px solid '+C.vora+';cursor:pointer');
@@ -109,17 +145,64 @@ function llista(cont){
         box.appendChild(f);
       });
       zona.appendChild(box);
+      }
     });
 }
 
 // ── Fitxa ──────────────────────────────────────────────────────────
 function fitxa(cont){
-  var accions = [E.boto('Tornar', function(){
+  var carregada = null;
+  var accions = [E.boto(tornarA ? 'Tornar al pla' : 'Tornar', function(){
+    if (tornarA){ var t = tornarA; tornarA = null; E.vesA(t); return; }
     vista = { mode:'llista', mena:vista.mena }; E.repinta();
   }, 'buit')];
-  if (E.perfil.role === 'coach')
+  if (E.perfil.role === 'coach'){
+    accions.unshift(E.boto('Duplicar', function(){
+      if (carregada) dialegDuplicar();
+    }, 'buit'));
     accions.unshift(E.boto('Editar', function(){ carregaEsborrany(vista.id); }));
+  }
   cont.appendChild(E.capcalera(esCardio() ? 'Sessió de cardio' : 'Rutina', null, accions));
+
+  // La còpia es per sobrecarregar: mateixa sessio, mes pes la setmana que ve.
+  var zonaDup = h('div','padding:4px 32px 0');
+  cont.appendChild(zonaDup);
+
+  function dialegDuplicar(){
+    E.buida(zonaDup);
+    var card2 = carregada.mena === 'cardio';
+    var box = h('div','background:'+C.panell+';border:1px solid '+E.accent()+'55;'+
+      'padding:15px 17px;margin-bottom:4px;max-width:640px');
+    box.appendChild(E.titol(card2 ? 'Duplicar la sessió' : 'Duplicar la rutina', 15));
+    box.appendChild(h('div','font-size:12.5px;color:'+C.apagat+';line-height:1.55;margin:5px 0 13px',
+      'Es crea una còpia amb els mateixos exercicis, sèries i descansos. '+
+      'Fes-ho servir per sobrecarregar: la mateixa sessió amb més pes la setmana que ve. '+
+      'En acabar, s\'obre la còpia per tocar-hi les càrregues.'));
+    var cn = E.camp({ et:'Nom de la còpia', valor:E.nomSeguent(carregada.nom) });
+    cn.style.marginBottom = '13px';
+    box.appendChild(cn);
+    var missD = h('div','margin-bottom:11px');
+    box.appendChild(missD);
+    var fila = h('div','display:flex;gap:8px');
+    var bOk = E.boto('Duplicar', function(){
+      E.buida(missD);
+      var nom = cn.control.value.trim();
+      if (!nom){ missD.appendChild(E.avis('La còpia necessita un nom.')); return; }
+      bOk.disabled = true; bOk.textContent = 'Duplicant…';
+      E.duplicaRutina(vista.id, nom).then(function(nova){
+        carregaEsborrany(nova.id);
+      }).catch(function(err){
+        bOk.disabled = false; bOk.textContent = 'Duplicar';
+        missD.appendChild(E.avis(err.message));
+      });
+    });
+    bOk.style.padding = '9px 16px'; bOk.style.fontSize = '12px';
+    var bNo = E.boto('Cancel·lar', function(){ E.buida(zonaDup); }, 'buit');
+    bNo.style.padding = '9px 16px'; bNo.style.fontSize = '12px';
+    fila.appendChild(bOk); fila.appendChild(bNo);
+    box.appendChild(fila);
+    zonaDup.appendChild(box);
+  }
 
   var cos = E.cos();
   cos.appendChild(E.carregant());
@@ -132,6 +215,7 @@ function fitxa(cont){
       E.buida(cos);
       if (r.error){ cos.appendChild(E.avis(r.error.message)); return; }
       var x = r.data, card = x.mena === 'cardio';
+      carregada = x;
       var ex = (x.routine_exercises || []).sort(function(a,b){ return a.ordre - b.ordre; });
 
       var cap = h('div','margin-bottom:22px');
@@ -255,12 +339,24 @@ function editor(cont){
         : (card ? 'Editar la sessió de cardio' : 'Editar rutina'),
     card ? 'Tria exercicis de cardio i defineix temps, rondes i intensitat'
          : 'Tria exercicis de la biblioteca i defineix sèries i repeticions',
-    [E.boto('Cancel\u00b7lar', function(){
+    [E.boto(tornarA ? 'Cancel\u00b7lar i tornar al pla' : 'Cancel\u00b7lar', function(){
       esborrany = null;
+      if (tornarA){ var t = tornarA; tornarA = null;
+                    vista = { mode:'llista', mena:vista.mena }; E.vesA(t); return; }
       vista = nou ? { mode:'llista', mena:vista.mena }
                   : { mode:'fitxa', id:vista.id, mena:vista.mena };
       E.repinta();
     }, 'buit')]));
+
+  // Qui ve del planning ha de saber que en desar hi tornara
+  if (tornarA){
+    var volta = h('div','padding:0 32px');
+    volta.appendChild(h('div','margin-top:14px;padding:11px 15px;background:'+C.or+'14;'+
+      'border-left:3px solid '+C.or+';font-size:12.5px;color:'+C.pedra+';line-height:1.55',
+      'Has obert aquesta rutina des del planning del pla. Quan desis els canvis, '+
+      'hi tornaràs. El que toquis aquí val per a tots els dies que la facin servir.'));
+    cont.appendChild(volta);
+  }
 
   var cos = E.cos();
   cos.appendChild(E.carregant('Carregant la biblioteca…'));
@@ -651,6 +747,7 @@ function editor(cont){
         }).then(function(rid){
           esborrany = null;
           vista = { mode:'fitxa', id:rid, mena:vista.mena };
+          if (tornarA){ var t = tornarA; tornarA = null; E.vesA(t); return; }
           E.repinta();
         }).catch(function(err){
           b.disabled = false; b.textContent = etiq;
@@ -686,6 +783,22 @@ function editor(cont){
 E.seccions.push({
   id:'rutines', etiqueta:'Rutines', icona:'\u25A4', rols:['coach','nutritionist'],
   pinta: function(cont){
+    // Venim del planning d'un pla: obre la rutina d'aquell dia i recorda
+    // cap on s'ha de tornar quan s'hagi desat o cancellat.
+    var enc = E.recullEncarrec('rutines');
+    if (enc && enc.rutina){
+      tornarA = enc.tornar || null;
+      esborrany = null;
+      vista = { mode:'fitxa', id:enc.rutina, mena:enc.mena || 'forca' };
+      if (enc.mode === 'editor' && E.perfil.role === 'coach'){
+        cont.appendChild(E.capcalera('Rutina'));
+        var espera = E.cos();
+        espera.appendChild(E.carregant('Obrint la rutina…'));
+        cont.appendChild(espera);
+        carregaEsborrany(enc.rutina);
+        return;
+      }
+    }
     if (vista.mode === 'editor' && E.perfil.role === 'coach') return editor(cont);
     if (vista.mode === 'fitxa' && vista.id) return fitxa(cont);
     return llista(cont);
