@@ -84,7 +84,10 @@ function pintaPla(cont, a, athleteId){
     editant === a.id
       ? E.sb.from('routines').select('id,nom,tipus,rondes').eq('mena','cardio')
           .is('deleted_at',null).order('nom')
-      : Promise.resolve({ data:[] })
+      : Promise.resolve({ data:[] }),
+    E.sb.from('workout_sessions').select('data,estat,setmana,dia_previst')
+      .eq('athlete_id', athleteId).gte('data', a.data_inici)
+      .order('data',{ascending:true}).limit(400)
   ]).then(function(r){
     E.buida(zonaCal);
     var propis = r[0].data || [], plantilla = r[1].data || [];
@@ -102,7 +105,9 @@ function pintaPla(cont, a, athleteId){
       E.CARDIO_RUTINES = (r[3] && r[3].data) || [];
       editorCal(zonaCal, a, mapa, setmanes, r[2].data || [], cont, athleteId);
     }
-    else lecturaCal(zonaCal, mapa, setmanes, !propis.length);
+    else lecturaCal(zonaCal, mapa, setmanes, !propis.length,
+      fetsPerDia(r[4] && r[4].data, a.data_inici, setmanes),
+      setmanaDe(new Date(), a.data_inici, setmanes));
   });
 }
 
@@ -121,20 +126,76 @@ function activitatsDe(dia){
   return l;
 }
 
-function lecturaCal(zona, mapa, setmanes, esPlantilla){
+// ── Que ha fet, de tot el que li tocava ───────────────────
+// El pla es un cicle: un pla de 4 setmanes que dura 12 torna a comencar tres
+// cops. Per tant una casella no es «un dia», es «cada cop que toca aquest
+// dia». Hi pintem l'ULTIMA vegada, amb la data, que es l'unica manera que
+// no enganyi.
+function diaSetmanaDe(d){ var n = d.getDay(); return n === 0 ? 7 : n; }
+
+function setmanaDe(data, inici, setmanes){
+  var d = (typeof data === 'string') ? new Date(data + 'T00:00:00') : data;
+  // El dilluns de la setmana d'aquesta data
+  var dl = new Date(d.getTime());
+  dl.setDate(dl.getDate() - (diaSetmanaDe(dl) - 1));
+  var passats = Math.floor((dl - new Date(inici + 'T00:00:00')) / 86400000);
+  if (passats < 0) passats = 0;
+  return (Math.floor(passats / 7) % (setmanes || 1)) + 1;
+}
+
+function fetsPerDia(sessions, inici, setmanes){
+  var m = {};
+  (sessions || []).forEach(function(x){
+    // Les sessions noves ja porten a quin dia del pla corresponen; les
+    // velles, d'abans de la migracio 08, s'han de deduir de la data.
+    var sm = x.setmana || setmanaDe(x.data, inici, setmanes);
+    var d = x.dia_previst || diaSetmanaDe(new Date(x.data + 'T00:00:00'));
+    if (sm < 1 || sm > (setmanes || 1) || d < 1 || d > 7) return;
+    m[clau(sm, d)] = x;   // ordenades per data: hi queda l'ultima
+  });
+  return m;
+}
+
+function dataCurta(s){
+  if (!s) return '';
+  var t = s.split('-');
+  return t[2] + '/' + t[1];
+}
+
+// Com es pinta cada estat a la casella del calendari
+function segellDe(x){
+  if (x.estat === 'completada')
+    return { t:'\u2713 ' + dataCurta(x.data), c:C.oliva };
+  if (x.estat === 'saltada')
+    return { t:'\u2715 ' + dataCurta(x.data), c:C.apagat };
+  return { t:'a mitges ' + dataCurta(x.data), c:C.brasa };
+}
+
+function lecturaCal(zona, mapa, setmanes, esPlantilla, fets, setmanaAra){
   if (esPlantilla)
     zona.appendChild(h('div','font-size:11.5px;color:'+C.apagat+';margin-bottom:11px;'+
       'line-height:1.5','Segueix el calendari de la plantilla del pla.'));
 
+  fets = fets || {};
   for (var s = 1; s <= setmanes; s++){
     var fila = h('div','margin-bottom:14px');
-    if (setmanes > 1)
-      fila.appendChild(h('div','font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;'+
-        'font-weight:700;color:'+C.or+';margin-bottom:7px','Setmana ' + s));
+    var ara = (s === setmanaAra);
+    if (setmanes > 1){
+      var capS = h('div','display:flex;align-items:baseline;gap:9px;margin-bottom:7px');
+      // L'accent de la consola es el blau pissarra: val per a vores i
+      // farciments, pero com a text no arriba al 4,5:1. Per destacar la
+      // setmana en curs hi va l'os, que es el valor mes fort que tenim.
+      capS.appendChild(h('div','font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;'+
+        'font-weight:700;color:'+(ara ? C.os : C.or),'Setmana ' + s));
+      if (ara) capS.appendChild(h('div','font-size:10px;padding:2px 7px;color:'+C.or+';'+
+        'border:1px solid '+C.vora,'la que toca ara'));
+      fila.appendChild(capS);
+    }
     var g = h('div','display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:'+C.vora);
     for (var d = 1; d <= 7; d++){
       var dia = mapa[clau(s,d)];
-      var c = h('div','background:'+C.panell+';padding:10px 11px;min-height:70px');
+      var c = h('div','background:'+C.panell+';padding:10px 11px;min-height:70px;'+
+        'display:flex;flex-direction:column');
       c.appendChild(h('div','font-size:9px;letter-spacing:.1em;text-transform:uppercase;'+
         'font-weight:700;color:'+C.apagat+';margin-bottom:5px', DIES_C[d-1]));
       var acts = activitatsDe(dia);
@@ -146,11 +207,30 @@ function lecturaCal(zona, mapa, setmanes, esPlantilla){
         if (x.fant) c.appendChild(h('div','font-size:9.5px;color:'+C.ambre+';'+
           'margin-top:1px','ja no és a la biblioteca'));
       });
+      // Nomes els dies amb entreno porten segell: un dia de pesatge no es
+      // una sessio i no te sentit dir-ne «mai».
+      var teEntreno = !!(dia && (dia.routine_id || dia.cardio_routine_id || dia.cardio));
+      var fet = teEntreno ? fets[clau(s,d)] : null;
+      if (fet){
+        var sg = segellDe(fet);
+        c.appendChild(h('div','margin-top:auto;padding-top:6px;font-size:9.5px;'+
+          'font-weight:600;color:'+sg.c, sg.t));
+      }
+      else if (teEntreno)
+        c.appendChild(h('div','margin-top:auto;padding-top:6px;font-size:9.5px;'+
+          'color:'+C.apagat,'mai'));
       g.appendChild(c);
     }
     fila.appendChild(g);
     zona.appendChild(fila);
   }
+
+  zona.appendChild(h('div','font-size:11px;color:'+C.apagat+';line-height:1.55;'+
+    'margin-top:-4px;max-width:660px',
+    'A sota de cada dia, l\'última vegada que el va fer: \u2713 completat, '+
+    '\u2715 marcat com a no fet, «a mitges» si el va obrir i no el va tancar. '+
+    'El pla dona la volta cada ' + setmanes + (setmanes === 1 ? ' setmana' : ' setmanes') +
+    ', per això hi va la data.'));
 }
 
 function editorCal(zona, a, mapa, setmanes, rutines, cont, athleteId){
