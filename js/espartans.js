@@ -115,7 +115,8 @@ function fitxa(cont){
       .eq('id', vista.id).single(),
     E.sb.from('measurements').select('*')
       .eq('athlete_id', vista.id).order('data',{ascending:false}).limit(10),
-    E.sb.from('workout_sessions').select('data,estat,rpe,dia_previst')
+    E.sb.from('workout_sessions')
+      .select('id,data,estat,rpe,notes,dia_previst,rutina:routines(nom)')
       .eq('athlete_id', vista.id).order('data',{ascending:false}).limit(10),
     E.sb.from('athlete_notes')
       .select('id,cos,visibilitat,created_at,autor:profiles!athlete_notes_autor_id_fkey(nom,cognoms)')
@@ -208,30 +209,64 @@ function fitxa(cont){
     // Sessions
     var sess = h('div');
     sess.appendChild(E.titol('Últimes sessions', 15));
+    sess.appendChild(h('div','font-size:11.5px;color:'+C.apagat+';margin-top:3px',
+      'Obre una sessió per veure les marques que hi va apuntar.'));
     var ls = h('div','margin-top:11px;display:flex;flex-direction:column;gap:1px;background:'+C.vora);
     var ds = r[2].data || [];
     if (!ds.length) ls.appendChild(E.buit('Cap sessió registrada.'));
     var colorEstat = { completada:C.oliva, pendent:C.ambre, en_curs:E.accent(), saltada:C.accio };
     var DIES = ['dilluns','dimarts','dimecres','dijous','divendres','dissabte','diumenge'];
+    var marquesDe = {};   // session_id -> la linia que diu quantes series porta
     ds.forEach(function(s){
       var f = h('div','display:flex;justify-content:space-between;align-items:center;'+
-        'background:'+C.panell+';padding:10px 14px');
+        'background:'+C.panell+';padding:10px 14px;cursor:pointer');
+      f.onmouseenter = function(){ f.style.background = C.panell2; };
+      f.onmouseleave = function(){ f.style.background = C.panell; };
       var esqS = h('div','min-width:0');
-      esqS.appendChild(h('div','font-size:12.5px;color:'+C.pedra, E.data(s.data)));
+      var dalt = h('div','display:flex;gap:9px;align-items:baseline;flex-wrap:wrap');
+      dalt.appendChild(h('div','font-size:12.5px;color:'+C.pedra, E.data(s.data)));
+      if (s.rutina && s.rutina.nom)
+        dalt.appendChild(h('div','font-size:11.5px;color:'+C.os+';font-weight:500',
+          s.rutina.nom));
+      esqS.appendChild(dalt);
       // Setmana flexible: l'Esparta pot fer avui l'entreno d'un altre dia
       var real = new Date(s.data + 'T00:00:00').getDay();
       real = real === 0 ? 7 : real;
       if (s.dia_previst && s.dia_previst !== real)
         esqS.appendChild(h('div','font-size:10.5px;color:'+C.or+';margin-top:2px',
           'entreno de ' + DIES[s.dia_previst - 1]));
+      marquesDe[s.id] = h('div','font-size:10.5px;color:'+C.apagat+';margin-top:2px',
+        'comptant les sèries…');
+      esqS.appendChild(marquesDe[s.id]);
       f.appendChild(esqS);
-      var v = h('div','display:flex;gap:12px;align-items:center');
+      var v = h('div','display:flex;gap:12px;align-items:center;flex-shrink:0');
       if (s.rpe) v.appendChild(h('div','font-size:11.5px;color:'+C.apagat,'RPE '+s.rpe));
       v.appendChild(E.etiqueta(String(s.estat).replace('_',' '), colorEstat[s.estat] || C.apagat));
       f.appendChild(v);
+      f.onclick = function(){ detallSessio(s, f); };
       ls.appendChild(f);
     });
     sess.appendChild(ls);
+    // Quantes series porta apuntades cadascuna, sense haver d'obrir-la: aixi
+    // es veu d'un cop d'ull si una sessio ha arribat buida.
+    if (ds.length)
+      E.sb.from('set_logs').select('session_id')
+        .in('session_id', ds.map(function(s){ return s.id; }))
+        .then(function(rs){
+          var compte = {};
+          (rs.data || []).forEach(function(x){
+            compte[x.session_id] = (compte[x.session_id] || 0) + 1;
+          });
+          ds.forEach(function(s){
+            var n = compte[s.id] || 0, li = marquesDe[s.id];
+            if (!li) return;
+            E.buida(li);
+            li.style.color = n ? C.or : C.brasa;
+            li.appendChild(document.createTextNode(
+              n ? n + (n === 1 ? ' sèrie apuntada' : ' sèries apuntades')
+                : 'cap sèrie apuntada'));
+          });
+        });
     cols.appendChild(sess);
 
     // Nutrició en lectura: l'entrenador veu quin pla de dieta té actiu
@@ -609,6 +644,122 @@ function resultat(cont, r, correu, nomSencer){
 
   cos.appendChild(f);
   cont.appendChild(cos);
+}
+
+// ── Detall d'una sessio · les marques que l'Esparta va apuntar ─────
+// Fins ara l'entrenador veia QUE hi havia hagut sessio, pero no QUE hi havia
+// dins. Si una serie no li arriba, ho ha de poder veure aqui.
+function detallSessio(s, despres){
+  var pare = despres.parentNode;
+  var jaHiEra = !!pare.querySelector('[data-sessio="'+s.id+'"]');
+  var altres = pare.querySelectorAll('[data-sessio]');
+  for (var i=0;i<altres.length;i++) altres[i].remove();
+  if (jaHiEra) return;   // segon clic: es tanca
+
+  var box = h('div','background:'+C.panell2+';padding:14px 17px');
+  box.setAttribute('data-sessio', s.id);
+  box.appendChild(E.carregant('Carregant les marques…'));
+  despres.insertAdjacentElement('afterend', box);
+
+  E.sb.from('set_logs')
+    .select('serie,reps,pes_kg,rir,completat_at,exercici:exercises(nom),'+
+            'pauta:routine_exercises(ordre,series,reps)')
+    .eq('session_id', s.id).order('completat_at',{ascending:true})
+    .then(function(r){
+      E.buida(box);
+      if (r.error){ box.appendChild(E.avis(r.error.message)); return; }
+      pintaMarques(box, s, r.data || []);
+    });
+}
+
+function horaDe(iso){
+  if (!iso) return '';
+  var d = new Date(iso);
+  return ('0'+d.getHours()).slice(-2) + ':' + ('0'+d.getMinutes()).slice(-2);
+}
+
+function notaSessio(s){
+  var w = h('div','background:'+C.panell+';border-left:3px solid '+C.blau+';'+
+    'padding:11px 13px;margin-top:4px');
+  w.appendChild(h('div','font-size:10px;letter-spacing:.13em;text-transform:uppercase;'+
+    'font-weight:700;color:'+C.or+';margin-bottom:6px','Nota de l\'Espartà'));
+  w.appendChild(h('div','font-size:13px;line-height:1.6;white-space:pre-wrap;color:'+C.pedra,
+    s.notes));
+  return w;
+}
+
+function pintaMarques(box, s, files){
+  if (!files.length){
+    box.appendChild(E.buit(s.estat === 'saltada'
+      ? 'Marcada com a no feta: no hi ha cap sèrie apuntada.'
+      : 'Cap sèrie apuntada en aquesta sessió.'));
+    if (s.notes) box.appendChild(notaSessio(s));
+    return;
+  }
+
+  // Agrupades per exercici, en l'ordre que tenien a la rutina
+  var grups = [], mapa = {};
+  files.forEach(function(x){
+    var nom = (x.exercici && x.exercici.nom) || 'Exercici esborrat';
+    var k = (x.pauta && x.pauta.ordre != null ? 'o'+x.pauta.ordre : 'x') + '|' + nom;
+    if (!mapa[k]){
+      mapa[k] = { nom:nom, series:[],
+        ordre: (x.pauta && x.pauta.ordre != null) ? x.pauta.ordre : 999,
+        previstes: x.pauta ? x.pauta.series : null,
+        pautaReps: x.pauta ? x.pauta.reps : null };
+      grups.push(mapa[k]);
+    }
+    mapa[k].series.push(x);
+  });
+  grups.sort(function(a,b){ return a.ordre - b.ordre; });
+
+  var volum = 0;
+  files.forEach(function(x){
+    if (x.reps && x.pes_kg) volum += x.reps * Number(x.pes_kg);
+  });
+  var resum = [files.length + (files.length === 1 ? ' sèrie' : ' sèries')];
+  if (volum) resum.push(Math.round(volum).toLocaleString('ca-ES') + ' kg de volum');
+  var hi = horaDe(files[0].completat_at);
+  var hf = horaDe(files[files.length - 1].completat_at);
+  if (hi) resum.push(hi === hf ? 'a les ' + hi : 'de ' + hi + ' a ' + hf);
+  box.appendChild(h('div','font-size:11.5px;color:'+C.or+';margin-bottom:12px',
+    resum.join(' \u00b7 ')));
+
+  grups.forEach(function(g){
+    var b = h('div','background:'+C.panell+';border-left:3px solid '+C.voraFort+';'+
+      'padding:10px 13px;margin-bottom:9px');
+    var cap = h('div','display:flex;justify-content:space-between;gap:10px;'+
+      'align-items:baseline;margin-bottom:8px');
+    cap.appendChild(h('div','font-size:13px;font-weight:600;color:'+C.os, g.nom));
+    var fetes = g.series.length;
+    var curt = g.previstes && fetes < g.previstes;
+    cap.appendChild(h('div','font-size:10.5px;flex-shrink:0;color:'+(curt ? C.ambre : C.apagat),
+      g.previstes ? fetes + ' de ' + g.previstes + ' sèries'
+                  : fetes + (fetes === 1 ? ' sèrie' : ' sèries')));
+    b.appendChild(cap);
+
+    g.series.sort(function(x,y){ return (x.serie || 0) - (y.serie || 0); });
+    var gr = h('div','display:flex;flex-wrap:wrap;gap:6px');
+    g.series.forEach(function(x){
+      var c = h('div','background:'+C.panell2+';border:1px solid '+C.vora+';'+
+        'padding:6px 11px;display:flex;gap:8px;align-items:baseline');
+      c.appendChild(h('div','font-size:9.5px;font-weight:700;color:'+C.apagat,
+        String(x.serie)));
+      var marca = (x.reps != null ? x.reps + ' reps' : '\u2014');
+      if (x.pes_kg != null) marca += ' \u00d7 ' + Number(x.pes_kg) + ' kg';
+      c.appendChild(h('div','font-size:12.5px;font-weight:500;color:'+C.os, marca));
+      if (x.rir != null)
+        c.appendChild(h('div','font-size:10px;color:'+C.apagat,'RIR ' + x.rir));
+      gr.appendChild(c);
+    });
+    b.appendChild(gr);
+    if (g.pautaReps)
+      b.appendChild(h('div','font-size:10.5px;color:'+C.apagat+';margin-top:7px',
+        'pauta: ' + g.pautaReps + ' reps'));
+    box.appendChild(b);
+  });
+
+  if (s.notes) box.appendChild(notaSessio(s));
 }
 
 E.seccions.push({
